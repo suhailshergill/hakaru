@@ -29,8 +29,10 @@ import GHC.Exts (Constraint)
 -- import qualified Language.Haskell.TH as TH
 -- import Language.Haskell.TH (Name, Q, Dec(..), Type(..), Info (..), TyVarBndr(..), reify, TySynEqn(..))
 import Language.Haskell.TH 
-import GHC.Prim (Any)
 import Unsafe.Coerce
+
+-- skolem type. TODO: don't export! This approach is taken in Data.Constraint.Forall
+data AnyT
 
 type family NAryFun (r :: * -> *) o (xs :: [*])  :: * 
 type instance NAryFun r o '[]  = r o 
@@ -40,7 +42,7 @@ newtype NFn r o x = NFn { unFn :: NAryFun r o x }
 
 type HRep repr a = NS (NP repr) (Code a) 
 
-class (Ctx repr Any, Base repr) => Embed (repr :: * -> *) where
+class (Ctx repr AnyT, Base repr) => Embed (repr :: * -> *) where
   type Ctx repr t :: Constraint 
 
   hRep :: (Embeddable t, Generic t, Ctx repr t) => repr (HRep repr t) -> repr t
@@ -61,7 +63,7 @@ class (Generic t, HasDatatypeInfo t) => Embeddable t where
   -- Unsafely produce the constraint `Ctx r t' for any `t' given that
   -- there is a `Ctr r Any'.  This is only correct if `Ctx r t' doesn't
   -- pattern match on `t', and there is a `Ctx r t' for every `Embeddable t'
-  ctxAny :: Proxy r -> Proxy t -> Dict (Ctx r Any) -> Dict (Ctx r t)
+  ctxAny :: Proxy r -> Proxy t -> Dict (Ctx r AnyT) -> Dict (Ctx r t)
   ctxAny _ _ x = unsafeCoerce x 
 
 apNAry' :: NP f xs -> NAryFun f o xs -> f o 
@@ -144,11 +146,13 @@ tyReal ty = do
       let tv' = map (VarT . bndrName) tv in (foldl AppT (ConT n) tv', tv')
     _ -> error "tyReal: supplied name not a plain datatype"
 
+{- No longer useful?
 tyAny :: Name -> Q Type 
 tyAny ty = do 
   (_, tvs) <- tyReal ty
   let tvsAny = replicate (length tvs) [t| GHC.Prim.Any |] 
   foldl appT (return $ ConT ty) tvsAny 
+-}
 
 -- Generates an `instance C (T a0 a1 .. an)`, where a0 .. an are fresh.
 emptyInstance :: Name   -- ^ Type name

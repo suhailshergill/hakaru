@@ -13,7 +13,7 @@ import Language.Hakaru.Syntax (Real, Prob, Measure,
 import Generics.SOP hiding (fn) 
 import Language.Hakaru.Embed
 import Language.Hakaru.Maple 
-import GHC.Prim (Any)
+import Unsafe.Coerce
 
 newtype Expect repr a = Expect { unExpect :: repr (Expect' a) }
 type family Expect' (a :: *)
@@ -125,14 +125,38 @@ normalize :: (Integrate repr, Lambda repr, Mochastic repr) =>
 normalize m = superpose [(recip (total (m Expect)), m id)]
 
 -- 'r' will only ever be 'Expect repr' 
+
+data Wrap a 
+
 type instance Expect' (NS (NP r) a) = NS (NP r) a 
+type instance Expect' (Wrap t) = HRep (Expect Maple) t
+
+unsafeWrap :: Expect Maple t -> Expect Maple (Wrap t) 
+unsafeWrap = unsafeCoerce
+
+unsafeUnwrap :: Expect Maple (Wrap t) -> Expect Maple t 
+unsafeUnwrap = unsafeCoerce
+
+hRepToWrap :: Expect Maple (NS (NP (Expect Maple)) (Code x)) -> Expect Maple (Wrap x)
+hRepToWrap (Expect x) = Expect x 
+
+wrapToHRep :: Expect Maple (Wrap x) -> Expect Maple (NS (NP (Expect Maple)) (Code x)) 
+wrapToHRep (Expect x) = Expect x 
+
+{- Old unsafe code
 type instance Expect' Any = HRep (Expect Maple) Any 
-
 instance Embed (Expect Maple) where 
-  type Ctx (Expect Maple) t = (Expect' t ~ HRep (Expect Maple) t)
-
+ type Ctx (Expect Maple) t = (Expect' t ~ HRep (Expect Maple) t)
   hRep (Expect x) = Expect x 
   unHRep (Expect x) = Expect x 
+-}
+
+instance Embed (Expect Maple) where 
+  type Ctx (Expect Maple) t = (Expect' (Wrap t) ~ HRep (Expect Maple) t)
+
+  hRep x = unsafeUnwrap (hRepToWrap x)
+  unHRep x = wrapToHRep (unsafeWrap x)
+
 
   sop' p x = 
     case diSing (datatypeInfo p) of 
