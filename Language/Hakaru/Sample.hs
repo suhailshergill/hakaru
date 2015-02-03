@@ -19,9 +19,6 @@ import qualified Numeric.Integration.TanhSinh as TS
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWCD
 import Language.Hakaru.Embed
-import Generics.SOP (NS(..), NP(..), Generic(..))
-import Data.Proxy 
-import Unsafe.Coerce
 
 newtype Sample m a = Sample { unSample :: Sample' m a }
 type family Sample' (m :: * -> *) (a :: *)
@@ -170,37 +167,8 @@ instance Lambda (Sample m) where
   app (Sample rator) (Sample rand) = Sample (rator rand)
 
 
-type instance Sample' m (NS (NP t) a) = NS (NP t) a 
-type instance Sample' m (Wrap t) = NS (NP (Sample m)) (Code t)
-data Wrap a 
-
-unsafeWrap :: Sample m t -> Sample m (Wrap t) 
-unsafeWrap = unsafeCoerce
-
-unsafeUnwrap :: Sample m (Wrap t) -> Sample m t 
-unsafeUnwrap = unsafeCoerce
-
-hRepToWrap :: Sample m (NS (NP (Sample m)) (Code x)) -> Sample m (Wrap x)
-hRepToWrap (Sample x) = Sample x 
-
-wrapToHRep :: Sample m (Wrap x) -> Sample m (NS (NP (Sample m)) (Code x)) 
-wrapToHRep (Sample x) = Sample x 
-
-{- Unsafe code
--- type instance Sample' m Any = HRep (Sample m) Any 
+type instance Sample' m (HRep t) = NS (NP (Sample m)) (Code t)
 
 instance Embed (Sample m) where 
-  -- type Ctx (Sample m) t = (Sample' m t ~ HRep (Sample m) t)
-
-  -- hRep (Sample x) = Sample x 
-  -- unHRep (Sample x) = Sample x 
--}
-
-instance Embed (Sample m) where 
-  type Ctx (Sample m) t = (Sample' m (Wrap t) ~ HRep (Sample m) t)
-
-  hRep x = unsafeUnwrap (hRepToWrap x)
-  unHRep x = wrapToHRep (unsafeWrap x)
-
   sop' _ x = Sample x 
   case' _ (Sample x) f = apNAry x f 

@@ -4,7 +4,7 @@ import System.Exit (exitFailure)
 
 import qualified Tests.RoundTrip as RT
 import qualified Tests.Syntax as SY
--- import qualified Tests.Embed as E
+import qualified Tests.Embed as E
 
 import Test.HUnit
 

@@ -337,6 +337,9 @@ data Expr b u t where -- b = bound variables; u = used variables
   Inl     :: Expr b u t ->                                Expr b u (Either t t')
   Inr     :: Expr b u t ->                                Expr b u (Either t' t)
   Cons    :: Expr b u t -> Expr b u [t] ->                Expr b u [t]
+
+  -- HRep    :: Embeddable t => NS (NP Disintegrate) (Code t) -> Expr b u (HRep t) 
+
   -- The Closure constructor below is for internal use
   -- and should not appear in the final output.
   Closure :: Expr Name Name (Measure t) -> [Binding Name u] ->

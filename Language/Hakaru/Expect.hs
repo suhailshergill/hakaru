@@ -1,19 +1,21 @@
 {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, FlexibleInstances,
     TypeFamilies, StandaloneDeriving, GeneralizedNewtypeDeriving, GADTs,
-    RankNTypes, ScopedTypeVariables, UndecidableInstances, TypeOperators, DataKinds #-}
+    RankNTypes, ScopedTypeVariables, UndecidableInstances, TypeOperators, DataKinds, DeriveGeneric #-}
+{-# LANGUAGE PolyKinds #-}
 {-# OPTIONS -Wall #-}
 
-module Language.Hakaru.Expect (Expect(..), Expect', total, normalize) where
+-- module Language.Hakaru.Expect (Expect(..), Expect', total, normalize) where
+module Language.Hakaru.Expect where
 
 -- Expectation interpretation
 
 import Prelude hiding (Real)
 import Language.Hakaru.Syntax (Real, Prob, Measure,
        Order(..), Base(..), Mochastic(..), Integrate(..), Lambda(..))
-import Generics.SOP hiding (fn) 
 import Language.Hakaru.Embed
 import Language.Hakaru.Maple 
-import Unsafe.Coerce
+import qualified Generics.SOP as SOP
+import Generics.SOP (I (..), (:.:) (..))
 
 newtype Expect repr a = Expect { unExpect :: repr (Expect' a) }
 type family Expect' (a :: *)
@@ -124,43 +126,136 @@ normalize :: (Integrate repr, Lambda repr, Mochastic repr) =>
              repr (Measure a)
 normalize m = superpose [(recip (total (m Expect)), m id)]
 
--- 'r' will only ever be 'Expect repr' 
 
-data Wrap a 
 
-type instance Expect' (NS (NP r) a) = NS (NP r) a 
-type instance Expect' (Wrap t) = HRep (Expect Maple) t
+-- This doesn't work, and maybe it shouldn't 
 
-unsafeWrap :: Expect Maple t -> Expect Maple (Wrap t) 
-unsafeWrap = unsafeCoerce
+{-
+sopExpect :: forall r t . (SingI (Code t), Embed r, Embeddable t) 
+          => NS (NP (Expect r)) (Code t) -> Expect r (HRep t) 
+sopExpect x = Expect $ sop $ SOP.unSOP $ 
+                SOP.hliftA (unsafeUnwrap . unExpect) (SOP.SOP x) where 
 
-unsafeUnwrap :: Expect Maple (Wrap t) -> Expect Maple t 
-unsafeUnwrap = unsafeCoerce
+  -- unsafeUnwrap :: forall a . exists b . r (Expect' a) -> r b 
+  unsafeUnwrap :: forall a . r (Expect' a) -> r a 
+  unsafeUnwrap = undefined 
 
-hRepToWrap :: Expect Maple (NS (NP (Expect Maple)) (Code x)) -> Expect Maple (Wrap x)
-hRepToWrap (Expect x) = Expect x 
 
-wrapToHRep :: Expect Maple (Wrap x) -> Expect Maple (NS (NP (Expect Maple)) (Code x)) 
-wrapToHRep (Expect x) = Expect x 
-
-{- Old unsafe code
-type instance Expect' Any = HRep (Expect Maple) Any 
-instance Embed (Expect Maple) where 
- type Ctx (Expect Maple) t = (Expect' t ~ HRep (Expect Maple) t)
-  hRep (Expect x) = Expect x 
-  unHRep (Expect x) = Expect x 
+caseExpect :: Expect r (HRep t) -> NP (NFn (Expect r) o) (Code t) -> Expect r o 
+caseExpect (Expect x) = _
 -}
 
+
+-- test0 :: Expect Maple (HRep (P2 (Measure Prob) (Measure Prob)))
+--       == Maple (HRep (P2 (Measure Prob) (Measure Prob)))
+--       == Maple (HRep ( P2 ((Prob -> Prob) -> Prob) ((Prob -> Prob) -> Prob) )) <- what we want 
+-- test0 = sop (Z $ dirac 1 :* dirac 2 :* Nil)
+
+-- data X = X (Measure Prob) (Measure Prob) 
+
+-- test0' = sop (Z $ dirac 1 :* dirac 2 :* Nil)
+-- test0' :: Expect Maple (HRep X)
+--        == Maple (HRep X) 
+
+
+-- test1 :: Expect Maple (Measure Prob, Measure Prob)
+--       == Maple ((Prob -> Prob) -> Prob, (Prob -> Prob) -> Prob)
+-- test1 = pair (dirac 1) (dirac 2) 
+
+data Void 
+type instance Expect' Void = Void 
+type instance Expect' (HRep t) = HRep t  
+
+
+data HSing t where 
+  HProb :: HSing Prob
+  HMeasure :: HakaruType a => HSing a -> HSing (Measure a)
+  HArr :: (HakaruType a, HakaruType b) => HSing a -> HSing b -> HSing (a -> b)
+
+data a :~: b where 
+  Refl :: a :~: a 
+
+eqHSing :: HSing t0 -> HSing t1 -> Maybe (t0 :~: t1) 
+eqHSing = undefined
+
+class HakaruType (t :: *) where 
+  hsing :: HSing t 
+
+instance HakaruType Prob where 
+  hsing = HProb 
+
+instance HakaruType a => HakaruType (Measure a) where 
+  hsing = HMeasure hsing 
+
+instance (HakaruType a, HakaruType b) => HakaruType (a -> b) where 
+  hsing = HArr hsing hsing 
+
+-- type instance Expect' (Measure a) = (Expect' a -> Prob) -> Prob
+
+-- sopExpect :: (SingI xss, Embed r) => (forall yss . NS (NP r) yss -> r Void) -> NS (NP (Expect r)) xss -> Expect r Void 
+-- sopExpect sopR x = Expect $ sopR $ SOP.unSOP $ SOP.hliftA _ (SOP.SOP x)
+
+class Embed' r where 
+  fromVoid :: Embeddable t => r Void -> r (HRep t)
+  toVoid :: Embeddable t => r (HRep t) -> r Void 
+
+  sop'' :: [[HTypeE r]] -> r Void 
+  case'' :: r Void -> [[HTypeE r] -> r o] -> r o
+
+-- expect' :: (HakaruType (Expect' t), HakaruType t) => Expect r t -> r (Expect' t) 
+-- expect' = undefined
+
+hsingDict :: HSing a -> Dict (HakaruType a)
+hsingDict (HMeasure a) = Dict 
+
+htypeExpect :: HSing a -> HSing (Expect' a) 
+htypeExpect = undefined
+
+fn :: HTypeE (Expect r) -> HTypeE r
+fn (HTypeE x) = case hsing' x of 
+                  HProb -> HTypeE (unExpect x) 
+                  HMeasure a -> case hsingDict (htypeExpect a) of 
+                                  Dict -> HTypeE (unExpect x)
+
+sopExpect :: Embed' r => [[HTypeE (Expect r)]] -> r Void 
+sopExpect xss = sop'' (map (map fn) xss) 
+
+
+data HTypeE r where 
+  HTypeE :: HakaruType t => r t -> HTypeE r 
+
+hsing' :: HakaruType t => r t -> HSing t 
+hsing' _ = hsing 
+
+castHType :: forall t r . HakaruType t => HTypeE r -> Maybe (r t) 
+castHType (HTypeE t) = case eqHSing (hsing' t) (hsing :: HSing t) of 
+                         Just Refl -> Just t 
+                         Nothing -> Nothing 
+
+nfnToEx :: SOP.All HakaruType xs => Sing xs -> NFn r o xs -> [HTypeE r] -> r o
+nfnToEx SNil (NFn x) [] = x 
+nfnToEx s@SCons (NFn f) (x:xs) = do 
+  case castHType x of 
+    Just x' -> nfnToEx (singTail s) (NFn (f x')) xs 
+    Nothing -> error "nfnToEx"
+nfnToEx _ _ _ = error "nfnToEx"
+
+nfnsToEx :: SOP.All2 HakaruType xss => Sing xss -> NP (NFn r o) xss -> [[HTypeE r] -> r o]
+nfnsToEx = undefined
+
+case''' :: (SingI (Code t), SOP.All2 HakaruType (Code t), Embed' repr, Embeddable t) 
+        => repr (HRep t) -> NP (NFn repr o) (Code t) -> repr o
+case''' hrep fs = case'' (toVoid hrep) ( nfnsToEx sing fs )
+
+
+
+
+
+
 instance Embed (Expect Maple) where 
-  type Ctx (Expect Maple) t = (Expect' (Wrap t) ~ HRep (Expect Maple) t)
-
-  hRep x = unsafeUnwrap (hRepToWrap x)
-  unHRep x = wrapToHRep (unsafeWrap x)
-
-
   sop' p x = 
     case diSing (datatypeInfo p) of 
-      Dict -> Expect $ Maple $ unMaple $ sop' p (unSOP (hliftA toM (SOP x)))
+      Dict -> Expect $ Maple $ unMaple $ sop' p (SOP.unSOP (SOP.hliftA toM (SOP.SOP x)))
         where toM :: Expect Maple a -> Maple a 
               toM (Expect (Maple a)) = Maple a 
 
@@ -179,5 +274,3 @@ instance Embed (Expect Maple) where
               funMs SNil Nil = Nil
               funMs SCons (a :* as) = funM sing a :* funMs sing as
               funMs _ _ = error "typeError: funMS" 
-
-                     
