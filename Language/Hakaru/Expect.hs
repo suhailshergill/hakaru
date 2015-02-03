@@ -169,8 +169,8 @@ type instance Expect' (HRep t) = HRep t
 
 data HSing t where 
   HProb :: HSing Prob
-  HMeasure :: HakaruType a => HSing a -> HSing (Measure a)
-  HArr :: (HakaruType a, HakaruType b) => HSing a -> HSing b -> HSing (a -> b)
+  HMeasure :: HSing a -> HSing (Measure a)
+  HArr :: HSing a -> HSing b -> HSing (a -> b)
 
 data a :~: b where 
   Refl :: a :~: a 
@@ -199,14 +199,20 @@ class Embed' r where
   fromVoid :: Embeddable t => r Void -> r (HRep t)
   toVoid :: Embeddable t => r (HRep t) -> r Void 
 
-  sop'' :: [[HTypeE r]] -> r Void 
+  sop'' :: (Int, [HTypeE r]) -> r Void 
+  unsop'' :: r Void -> (Int, [HTypeE r])
+
   case'' :: r Void -> [[HTypeE r] -> r o] -> r o
+  case'' x fs = case unsop'' x of 
+                  (c, v) -> (fs !! c) v 
 
 -- expect' :: (HakaruType (Expect' t), HakaruType t) => Expect r t -> r (Expect' t) 
 -- expect' = undefined
 
 hsingDict :: HSing a -> Dict (HakaruType a)
-hsingDict (HMeasure a) = Dict 
+hsingDict HProb = Dict 
+hsingDict (HMeasure a) = case hsingDict a of Dict -> Dict
+hsingDict (HArr a b) = case (hsingDict a, hsingDict b) of (Dict, Dict) -> Dict 
 
 htypeExpect :: HSing a -> HSing (Expect' a) 
 htypeExpect = undefined
@@ -217,9 +223,31 @@ fn (HTypeE x) = case hsing' x of
                   HMeasure a -> case hsingDict (htypeExpect a) of 
                                   Dict -> HTypeE (unExpect x)
 
-sopExpect :: Embed' r => [[HTypeE (Expect r)]] -> r Void 
-sopExpect xss = sop'' (map (map fn) xss) 
+-- fn' :: forall r . HTypeE (unExpect r) -> HTypeE r 
+fn' :: forall r . HTypeE r -> HTypeE (Expect r) 
+fn' (HTypeE x) = case hsing' x of 
+                   HMeasure _ -> error "A Measure can't appear in the result of an application of Expect'" 
+                   HProb -> HTypeE (Expect x :: Expect r Prob) 
 
+
+sopExpect :: Embed' r => (Int, [HTypeE (Expect r)]) -> Expect r Void 
+sopExpect (c, xs) = Expect (sop'' (c, map fn xs))
+
+unsopExpect :: Embed' r => Expect r Void -> (Int, [HTypeE (Expect r)])
+unsopExpect (Expect x) = case unsop'' x of 
+                           (c, xs) -> (c, map fn' xs)  
+
+
+
+-- caseExpect :: Embed' r => Expect r Void -> [[HTypeE (Expect r)] -> Expect r o] -> Expect r o
+-- caseExpect (Expect x) fs = Expect (case'' x (map t fs)) where 
+
+--   t :: Embed' r => ([HTypeE (Expect r)] -> Expect r o) -> ([HTypeE r] -> r (Expect' o))
+--   t f xs = undefined
+
+
+fromVoidExpect :: (Embeddable t, Embed' r) => Expect r Void -> Expect r (HRep t)
+fromVoidExpect (Expect x) = Expect (fromVoid x) 
 
 data HTypeE r where 
   HTypeE :: HakaruType t => r t -> HTypeE r 
